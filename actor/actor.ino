@@ -1,14 +1,24 @@
-#include <Stepper.h>
-Stepper configureStepper(int, int);
+#include <AccelStepper.h>
+
+#define FULL_STEP_MODE 4
+#define HALF_STEP_MODE 8
+
+#define DEFAULT_MAX_SPEED 2000
+#define DEFAULT_SPEED 1000
+#define DEFAULT_ACCELERATION 500
+
+#define SERIAL_STATE_PIN 7
+
+
+AccelStepper initStepper(int);
 
 typedef struct {
   String cmd;
   int    payload;
 } Command;
 
-int stepsPerRevolution = 2048;
-int rpm = 15;
-Stepper stepper = configureStepper(stepsPerRevolution, rpm);
+AccelStepper stepper = initStepper(HALF_STEP_MODE);
+boolean usagePrinted = true;
 
 void setup() {
   Serial.begin(9600);
@@ -21,46 +31,55 @@ void loop() {
     Command command = serialReadCommand();
 
     // config
-    if (command.cmd == "spr") {
-      stepper = configureStepper(command.payload, rpm);
-    } else if (command.cmd == "rpm") {
-      stepper = configureStepper(stepsPerRevolution, command.payload);
+    if (command.cmd == "full-step-mode") {
+      serialPrintf("set full-step-mode", FULL_STEP_MODE);
+      stepper = initStepper(FULL_STEP_MODE);
+    } else if (command.cmd == "half-step-mode") {
+      serialPrintf("set half-step-mode", HALF_STEP_MODE);
+      stepper = initStepper(HALF_STEP_MODE);
+    } else if (command.cmd == "max-speed") {
+      serialPrintf("set max-speed: %d", command.payload);
+      stepper.setMaxSpeed(command.payload);
+    } else if (command.cmd == "speed") {
+      serialPrintf("set speed: %d", command.payload);
+      stepper.setSpeed(command.payload);
+    } else if (command.cmd == "acceleration") {
+      serialPrintf("set acceleration: %d", command.payload);
+      stepper.setAcceleration(command.payload);
     }
 
 
-    // steps
-    if (command.cmd == "s") {
+    // move
+    if (command.cmd == "move-to") {
       moveStepper(command.payload);
     }
-
-
-    // right
-    if (command.cmd == "1r") {
-      moveStepper(-stepsPerRevolution);
-    } else if (command.cmd == "1/2r") {
-      moveStepper(-stepsPerRevolution / 2);
-    } else if (command.cmd == "1/4r") {
-      moveStepper(-stepsPerRevolution / 4);
-    }
-
-
-    // left
-    if (command.cmd == "1l") {
-      moveStepper(stepsPerRevolution);
-    } else if (command.cmd == "1/2l") {
-      moveStepper(stepsPerRevolution / 2);
-    } else if (command.cmd == "1/4l") {
-      moveStepper(stepsPerRevolution / 4);
-    }
   }
+
+  if(clientConnected()) {
+    if(! usagePrinted) {
+      usagePrinted = true;
+      Serial.println("Supported commands:");
+      Serial.println(" - full-step-mode / half-step-mode");
+      Serial.println(" - max-speed:x");
+      Serial.println(" - speed:x");
+      Serial.println(" - acceleration:x");
+      Serial.println(" - move-to:x");
+
+      stepper = initStepper(HALF_STEP_MODE);
+    }
+  } else {
+    usagePrinted = false;
+  }
+
   delay(10);
 }
 
 
 // FIXME: enable / disable motor
 void moveStepper(int steps) {
-  serialPrintf("move stepper: %s", steps);
-  stepper.step(steps);
+  serialPrintf("move stepper: %d", steps);
+  stepper.moveTo(steps);
+  stepper.runToPosition();
 }
 
 
@@ -84,12 +103,18 @@ Command serialReadCommand() {
 }
 
 
-Stepper configureStepper(int _stepsPerRevolution, int _rpm) {
-  stepsPerRevolution = _stepsPerRevolution;
-  rpm = _rpm;
+AccelStepper initStepper(int mode) {
 
-  serialPrintf("configure stepper\n  - spr:%d\n  - rpm:%d", stepsPerRevolution, rpm);
-  stepper = Stepper(stepsPerRevolution, 8, 10, 9, 11);
-  stepper.setSpeed(rpm);
+  serialPrintf("init stepper\n  - mode:%d\n  - max_speed:%d\n  - speed:%d\n  - acceleration:%d\n",
+               mode, DEFAULT_MAX_SPEED, DEFAULT_SPEED, DEFAULT_ACCELERATION);
+  stepper = AccelStepper(mode, 8, 10, 9, 11);
+  stepper.setMaxSpeed(DEFAULT_MAX_SPEED);
+  stepper.setSpeed(DEFAULT_SPEED);
+  stepper.setAcceleration(DEFAULT_ACCELERATION);
   return stepper;
 }
+
+
+ boolean clientConnected() {
+   return digitalRead(SERIAL_STATE_PIN);
+ }
